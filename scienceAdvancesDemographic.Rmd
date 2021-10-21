@@ -1,0 +1,174 @@
+---
+title: "Precision communication: Physicians’ linguistic adaptation to patients’ health literacy"
+author: "Nick Duran"
+date: 10/14/21
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+```
+
+## What this Notebook Contains
+
+> Assuming access to the available source data files, the Notebook contains the complete statistical code for replicating:
+> 
+> * "Table 1. Characteristics of patients in overall sample"
+
+#### Step 1. Import "Duran_Schillinger_KNPC_restricted_demographics.csv."
+
+See README in repository for instructions on how to access the .csv file. 
+
+**Please note:** *Kaiser Permanante (owners of data) will not allow any individual-level data (even a small subset) to be shown in a public repository. A version of this HTML exists with the restricted .csv files that includes a subset of individual-level data to aid in tutorial interpretation.*
+
+```{r, message=FALSE}
+library(tidyverse)
+library(pander)
+
+df.demo = read.csv("Duran_Schillinger_KNPC_restricted_demographics.csv")
+pander(names(df.demo))
+```
+
+- **PAT_ID**: Randomly generated numeric code associated with each unique patient 
+- **Age**: Age of patient
+- **sex**: Sex of patient; 0 = female, 1 = male
+- **race**: Race of patient; 1 = White, 2 = Black, 3 = Hispanic, 4 = Asian, 5 = Other 
+- **educ_p**: Education level of patient; 1 = No degree, 2 = GED/high school, 3 = Some college or more    
+- **CHARLSON_INDEX**: Co-morbidity index, interval
+- **predictions_LP**: Patient's assigned score of "high" or "low" health literacy (otherwise known as "LP Score") based on previously developed linguistic model; see: S. A. Crossley, R. Balyan, J. Liu, A. J. Karter, D. McNamara, D. Schillinger, Developing and testing automatic models of patient communicative health literacy using linguistic features: Findings from the ECLIPPSE study, Health Commun. (2020)
+
+#### Step 2: Reassign variable levels for readability
+
+```{r}
+df.demo.prep = df.demo %>%
+  mutate(sex = case_when(
+    sex=="0" ~ "Women", 
+    sex=="1" ~ "Men",
+    TRUE ~ NA_character_)) %>%
+  mutate(race = case_when(
+    race=="1" ~ "White", 
+    race=="2" ~ "Black",
+    race=="3" ~ "Hispanic", 
+    race=="4" ~ "Asian",
+    race=="5" ~ "Other", 
+    TRUE ~ NA_character_)) %>%
+  mutate(educ_p = case_when(
+    educ_p=="1" ~ "No degree", 
+    educ_p=="2" ~ "GED/high school",
+    educ_p=="3" ~ "Some college or more",    
+    TRUE ~ NA_character_)) 
+
+```
+
+#### Step 3: For each variable, generate summary statistics based on whether high or low health literacy; Start with education level as example
+
+```{r, warning=FALSE}
+
+## Get stratified counts and percentage of each education category
+demo_ed = df.demo.prep %>% group_by(educ_p) %>%
+  summarize(count=n(), perce = (n()/nrow(df.demo.prep))*100) 
+demo_edlow = filter(df.demo.prep, predictions_LP=="Low") %>% group_by(educ_p) %>%
+  summarize(count=n(), perce = (n()/nrow(filter(., predictions_LP=="Low")))*100)  
+demo_edhigh = filter(df.demo.prep, predictions_LP=="High") %>% group_by(educ_p) %>%
+  summarize(count=n(), perce = (n()/nrow(filter(., predictions_LP=="High")))*100)  
+
+## Assemble into readable matrix
+demoEduc = matrix(c(
+  "No degree ", demo_ed$count[2], round(demo_ed$perce[2],1) , demo_edlow$count[2], round(demo_edlow$perce[2],1), demo_edhigh$count[2], round(demo_edhigh$perce[2],1),  
+  "GED/high school", demo_ed$count[1], round(demo_ed$perce[1],1) , demo_edlow$count[1], round(demo_edlow$perce[1],1), demo_edhigh$count[1], round(demo_edhigh$perce[1],1),  
+  "Some college or more", demo_ed$count[3], round(demo_ed$perce[3],1) , demo_edlow$count[3], round(demo_edlow$perce[3],1), demo_edhigh$count[3], round(demo_edhigh$perce[3],1) ),  
+  ncol=7,byrow=TRUE)
+colnames(demoEduc) = c("Levels", "Total", "Total-%", "LowHL", "LowHL-%", "HighHL", "HighHL-%")
+
+pander(head(demoEduc))
+```
+
+#### Step 4: Follow same procedure as above for remaining variables
+
+```{r}
+
+## Get stratified counts and percentage of each sex category
+demo_sex = df.demo.prep %>% group_by(sex) %>%
+  summarize(count=n(), perce = (n()/nrow(df.demo.prep))*100)  
+demo_sexlow = filter(df.demo.prep, predictions_LP=="Low") %>% group_by(sex) %>%
+  summarize(count=n(), perce = (n()/nrow(filter(., predictions_LP=="Low")))*100)  
+demo_sexhigh = filter(df.demo.prep, predictions_LP=="High") %>% group_by(sex) %>%
+  summarize(count=n(), perce = (n()/nrow(filter(., predictions_LP=="High")))*100)  
+
+## Assemble into readable matrix
+demoSex = matrix(c(
+  "Women", demo_sex$count[2], round(demo_sex$perce[2],1) , demo_sexlow$count[2], round(demo_sexlow$perce[2],1), demo_sexhigh$count[2], round(demo_sexhigh$perce[2],1) ),
+  ncol=7,byrow=TRUE)
+colnames(demoSex) = c("Levels", "Total", "Total-%", "LowHL", "LowHL-%", "HighHL", "HighHL-%")
+
+pander(demoSex)
+```
+
+```{r}
+
+## Get stratified counts and percentage of each race category
+demo_race = df.demo.prep %>% group_by(race) %>%
+  summarize(count=n(), perce = (n()/nrow(df.demo.prep))*100) 
+demo_racelow = filter(df.demo.prep, predictions_LP=="Low") %>% group_by(race) %>%
+  summarize(count=n(), perce = (n()/nrow(filter(., predictions_LP=="Low")))*100)  
+demo_racehigh = filter(df.demo.prep, predictions_LP=="High") %>% group_by(race) %>%
+  summarize(count=n(), perce = (n()/nrow(filter(., predictions_LP=="High")))*100)  
+
+## Assemble into readable matrix
+demoRace = matrix(c(
+  "White", demo_race$count[5], round(demo_race$perce[5],1) , demo_racelow$count[5], round(demo_racelow$perce[5],1), demo_racehigh$count[5], round(demo_racehigh$perce[5],1),   
+  "Black", demo_race$count[2], round(demo_race$perce[2],1) , demo_racelow$count[2], round(demo_racelow$perce[2],1), demo_racehigh$count[2], round(demo_racehigh$perce[2],1),  
+  "Hispanic", demo_race$count[3], round(demo_race$perce[3],1) , demo_racelow$count[3], round(demo_racelow$perce[3],1), demo_racehigh$count[3], round(demo_racehigh$perce[3],1),  
+  "Asian", demo_race$count[1], round(demo_race$perce[1],1) , demo_racelow$count[1], round(demo_racelow$perce[1],1), demo_racehigh$count[1], round(demo_racehigh$perce[1],1),  
+  "Other", demo_race$count[4], round(demo_race$perce[4],1) , demo_racelow$count[4], round(demo_racelow$perce[4],1), demo_racehigh$count[4], round(demo_racehigh$perce[4],1) ),
+ncol=7,byrow=TRUE)
+colnames(demoRace) = c("Levels", "Total", "Total-%", "LowHL", "LowHL-%", "HighHL", "HighHL-%")
+
+pander(demoRace)
+
+```
+
+```{r}
+
+## Get mean and SD for continuous variable of age; Assemble into readable matrix
+demo_low = filter(df.demo.prep, predictions_LP=="Low") 
+demo_high = filter(df.demo.prep, predictions_LP=="High") 
+
+demoAge = matrix(c(
+  "Age", round(mean(df.demo.prep$Age),1), round(sd(df.demo.prep$Age),1), round(mean(demo_low$Age),1), round(sd(demo_low$Age),1), round(mean(demo_high$Age),1), round(sd(demo_high$Age),1) ), 
+  ncol=7,byrow=TRUE)
+colnames(demoAge) = c("Levels", "Total", "Total-%", "LowHL", "LowHL-%", "HighHL", "HighHL-%")
+
+pander(demoAge)
+
+```
+
+```{r}
+
+## Get mean and SD for interval variable of comorbidity score; Assemble into readable matrix
+democoMorbid = matrix(c(
+  "Comorbidity Score", round(mean(df.demo.prep$CHARLSON_INDEX),1), round(sd(df.demo.prep$CHARLSON_INDEX),1), round(mean(demo_low$CHARLSON_INDEX),1), round(sd(demo_low$CHARLSON_INDEX),1), round(mean(demo_high$CHARLSON_INDEX),1), round(sd(demo_high$CHARLSON_INDEX),1) ), 
+  ncol=7,byrow=TRUE)
+colnames(democoMorbid) = c("Levels", "Total", "Total-%", "LowHL", "LowHL-%", "HighHL", "HighHL-%")
+
+pander(democoMorbid)
+```
+
+#### Step 5: Simple tests to compare counts between high and low health literacy values
+
+```{r}
+library(compareGroups)
+
+df.demo2 = df.demo
+
+df.demo2$sex = as.factor(df.demo2$sex)
+df.demo2$race = as.factor(df.demo2$race)
+df.demo2$educ_p = as.factor(df.demo2$educ_p)
+
+demo.test <- compareGroups(predictions_LP ~ Age + sex + race + educ_p + CHARLSON_INDEX,
+    data = df.demo2)
+print(demo.test)
+```
+
+

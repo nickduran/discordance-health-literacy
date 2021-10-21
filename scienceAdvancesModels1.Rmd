@@ -1,0 +1,170 @@
+---
+title: "Precision communication: Physicians’ linguistic adaptation to patients’ health literacy"
+author: "Nick Duran"
+date: 10/14/21
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+```
+
+## What this Notebook Contains
+
+> Assuming access to the available source data files, the Notebook contains the complete statistical code for replicating sections:
+> 
+> * "Grouping by dyadic-level SM concordance"
+> * "Association between dyadic-level SM concordance and patient-reported understanding"
+
+#### Step 1: Import "Duran_Schillinger_KNPC_restricted_models.csv." 
+
+See README in repository for instructions on how to access the .csv file. 
+
+**Please note:** *Kaiser Permanante (owners of data) will not allow any individual-level data (even a small subset) to be shown in a public repository. A version of this HTML exists with the restricted .csv files that includes a subset of individual-level data to aid in tutorial interpretation.*
+
+```{r, message=FALSE}
+library(tidyverse)
+library(pander)
+```
+
+```{r}
+df.models = read.csv("Duran_Schillinger_KNPC_restricted_models.csv")
+
+## Make sure to remove any patients who did not provide a CAHPS score for their physician
+df.models = df.models[!(is.na(df.models$DV_CAREEXPL)),]
+pander(names(df.models))
+```
+
+- **PCP_ID1**: Randomly generated numeric code associated with each unique doctor 
+- **predictions_LP**: Patient's assigned score of "high" or "low" health literacy (otherwise known as "LP Score") based on previously developed linguistic model; see: S. A. Crossley, R. Balyan, J. Liu, A. J. Karter, D. McNamara, D. Schillinger, Developing and testing automatic models of patient communicative health literacy using linguistic features: Findings from the ECLIPPSE study, Health Commun. (2020)
+- **predictions_new_CP**: The doctor's score of "high" or "low" writing complexity (for a particular patient; otherwise known as "CP Score") based on previously developed linguistic model developed; see S. A. Crossley, R. Balyan, J. Liu, A. J. Karter, D. McNamara, D. Schillinger, Predicting the readability of physicians’ secure messages to improve health communication using novel linguistic features: Findings from the ECLIPPSE study, J. Commun. Healthc. 13, 344–356 (2020). 
+- **DV_CAREEXPL**: Doctor's CAHPS score received by a patient
+- **cat_match**: Doctor's CP (Complexty Profile) score associated with a patient's LP (Health Literacy) score, basis for determining language concordance/matching (e.g., four possibilities: lowCP-lowLP, lowCP-highCP, highCP-lowLP, highCP-highCP)
+- **Age_z**: Age of patient (z-scored)
+- **sex**: Sex of patient; 0 = female, 1 = male
+- **white**: Race of patient; 1 = White, 0 = Non-White
+- **ed_HS**: Education level of patient; 1 = Some College, 2 = No College
+- **CHARLSON_INDEX_z**: Co-morbidity index, interval (z-scored)
+
+## Subhead: "Grouping by dyadic-level SM concordance"
+
+#### Step 1: Create new variable "cat_match" that captures the concordance relationship between patient and physician based on respective linguistic score (low or high)
+
+```{r}
+df.models = df.models %>% mutate(
+  cat_match = case_when(
+    predicted_new_CP=="low" & predictions_LP=="Low" ~ "lowCP-lowLP",
+    predicted_new_CP=="low" & predictions_LP=="High" ~ "lowCP-highLP",
+    predicted_new_CP=="high" & predictions_LP=="Low" ~ "highCP-lowLP",
+    predicted_new_CP=="high" & predictions_LP=="High" ~ "highCP-highLP",
+    TRUE ~ NA_character_))
+    
+df.models$cat_match = as.factor(df.models$cat_match)
+# pander(names(df.models[c(1,3,4,10)]))
+```
+
+#### Step 2: Assign whether the CAHPS survey score provided by patient about physician was "good" or "poor" and show breakdown of score based on concordance relationship
+
+```{r}
+df.models.tab = df.models %>%
+  mutate(DV_CAREEXPL = case_when(
+    DV_CAREEXPL=="0" ~ "Good", 
+    DV_CAREEXPL=="1" ~ "Poor"))
+```
+
+```{r}
+x1 = xtabs(~ DV_CAREEXPL + cat_match, df.models.tab)
+pander(x1)
+```
+#### Step 3: Generate summary descriptives as described in manuscript
+
+"Across all 4,331 physician/patient dyads..."
+
+```{r}
+pander(sum(x1))
+```
+
+"the prevalence of discordance (47.19%; 2,044 pairs) was lower than concordance (52.81%, 2,287 pairs)."
+
+```{r}
+pander(sum(rowSums(t(x1))[c(2,3)]))
+pander(sum(rowSums(t(x1))[c(1,4)]))
+```
+
+"Stratifying by patients’ HL, the proportional frequency of discordance (relative to concordance) was higher amongst patients with low HL compared to high HL (p<.001). Of the 1,560 patients classified as low HL, 821 (52.62%) had a discordant physician (i.e., high complexity), whereas among the 2,771 patients classified as high HL, 1,223 (44.14%) had a discordant physician (i.e., low complexity)."
+
+```{r}
+pander(prop.test(x = c(1223, 821), n = c(2771, 1560)))
+```
+
+## Subhead: "Association between dyadic-level SM concordance and patient-reported understanding" 
+
+#### Step 1: Generate summary descriptives as described in manuscript.
+
+"Overall, 475 (10.97%) of all patients reported “poor” understanding of their healthcare provider..."
+
+```{r}
+pander(colSums(t(x1)))
+```
+
+"...this lack of understanding was more prevalent among low vs. high HL patients (13.65% vs 9.46%, p<.001)."
+
+```{r}
+pander(prop.test(x = c(sum(x1[2,c(1,3)]), sum(x1[2,c(2,4)])), n = c(sum(x1[,c(1,3)]), sum(x1[,c(2,4)]))))
+```
+
+### Mixed effects models
+
+**Corresponds to results reported in "Table 2. Results of dyadic-level concordance and patient-reported understanding**
+
+```{r, warning=FALSE, message=FALSE, error=FALSE}
+library(lme4)
+library(strengejacke)
+```
+
+```{r}
+## Standardize appropriate variables
+df.models.var = df.models %>% mutate(
+                                 CHARLSON_INDEX_z = scale(CHARLSON_INDEX, center=FALSE),
+                                 Age_z = scale(Age, center=FALSE)
+                                 )
+```
+
+#### Focus on Low HL patients
+
+```{r}
+df_low = df.models.var %>% filter(cat_match == "lowCP-lowLP" | cat_match == "highCP-lowLP")
+df_low$cat_match <- relevel(df_low$cat_match, "lowCP-lowLP")
+
+glmer.fit1 <- glmer(DV_CAREEXPL ~ cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_low, family = binomial)
+tab_model(glmer.fit1,digits = 3,digits.re = 3)
+```
+
+#### Focus on High HL patients
+
+```{r}
+df_high = df.models.var %>% filter(cat_match == "lowCP-highLP" | cat_match == "highCP-highLP")
+df_high$cat_match <- relevel(df_high$cat_match, "highCP-highLP")
+
+glmer.fit2 <- glmer(DV_CAREEXPL ~ cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_high, family = binomial)
+tab_model(glmer.fit2,digits = 3,digits.re = 3)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,445 @@
+---
+title: "Precision communication: Physicians’ linguistic adaptation to patients’ health literacy"
+author: "Nick Duran"
+date: 10/14/21
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+```
+
+## What this Notebook Contains
+
+> Assuming access to the available source data files, the Notebook contains the complete statistical code for replicating sections:
+> 
+> * "Physicians’ communication strategies and patient-reported understanding"
+> * "Effects of combining dyadic-level SM concordance and physicians’ communication strategy"
+> * "Classifying physician-level communication strategies"
+> * Figure 1
+
+#### Step 1: Import "Duran_Schillinger_KNPC_restricted_models.csv." 
+
+See README in repository for instructions on how to access the .csv file. 
+
+**Please note:** *Kaiser Permanante (owners of data) will not allow any individual-level data (even a small subset) to be shown in a public repository. A version of this HTML exists with the restricted .csv files that includes a subset of individual-level data to aid in tutorial interpretation.*
+
+```{r, message=FALSE}
+library(tidyverse)
+library(pander)
+```
+
+```{r}
+df.models = read.csv("Duran_Schillinger_KNPC_restricted_models.csv")
+pander(names(df.models))
+```
+
+- **PCP_ID1**: Randomly generated numeric code associated with each unique doctor 
+- **predictions_LP**: Patient's assigned score of "high" or "low" health literacy (otherwise known as "LP Score") based on previously developed linguistic model; see: S. A. Crossley, R. Balyan, J. Liu, A. J. Karter, D. McNamara, D. Schillinger, Developing and testing automatic models of patient communicative health literacy using linguistic features: Findings from the ECLIPPSE study, Health Commun. (2020)
+- **predictions_new_CP**: The doctor's score of "high" or "low" writing complexity (for a particular patient; otherwise known as "CP Score") based on previously developed linguistic model developed; see S. A. Crossley, R. Balyan, J. Liu, A. J. Karter, D. McNamara, D. Schillinger, Predicting the readability of physicians’ secure messages to improve health communication using novel linguistic features: Findings from the ECLIPPSE study, J. Commun. Healthc. 13, 344–356 (2020). 
+- **DV_CAREEXPL**: Doctor's CAHPS score received by a patient
+- **cat_match**: Doctor's CP (Complexty Profile) score associated with a patient's LP (Health Literacy) score, basis for determining language concordance/matching (e.g., four possibilities: lowCP-lowLP, lowCP-highCP, highCP-lowLP, highCP-highCP)
+- **Age_z**: Age of patient (z-scored)
+- **sex**: Sex of patient; 0 = female, 1 = male
+- **white**: Race of patient; 1 = White, 0 = Non-White
+- **ed_HS**: Education level of patient; 1 = Some College, 2 = No College
+- **CHARLSON_INDEX_z**: Co-morbidity index, interval (z-scored)
+
+## Subhead: "Physicians’ communication strategies and patient-reported understanding"
+
+#### Step 1: Identify physicians communication strategies: To start, create new variable "cat_match" that captures the concordance relationship between patient and physician based on the respective linguistic score (low or high) of each.
+
+Output would show, for example, Physician PCPXXXX using low complexity with a patient classified as having low health literacy (cat_match = "lowCP-lowLP") but also high complexity with a patient classified as low health literacy (cat_match = "lowCP-highLP"). **Please note:** *Kaiser Permanante (owners of data) will not allow any individual-level data (even a small subset) to be shown in a public repository. A version of this HTML exists with the restricted .csv files that includes a subset of individual-level data to aid in tutorial interpretation.*
+
+```{r}
+df.models = df.models %>% mutate(
+  cat_match = case_when(
+    predicted_new_CP=="low" & predictions_LP=="Low" ~ "lowCP-lowLP",
+    predicted_new_CP=="low" & predictions_LP=="High" ~ "lowCP-highLP",
+    predicted_new_CP=="high" & predictions_LP=="Low" ~ "highCP-lowLP",
+    predicted_new_CP=="high" & predictions_LP=="High" ~ "highCP-highLP",
+    TRUE ~ NA_character_))
+    
+df.models$cat_match = as.factor(df.models$cat_match)
+
+# pander(names(df.models[c(1,3,4,10)]))
+```
+
+#### Step 2: Create new variable, "uniquepat," that captures the unique number of patients for each physician and filter to only include physicians with at least four unique patients.
+
+Output would show, for example, that Physician PCPXXX had 6 unique patients. **Please note:** *Kaiser Permanante (owners of data) will not allow any individual-level data (even a small subset) to be shown in a public repository. A version of this HTML exists with the restricted .csv files that includes a subset of individual-level data to aid in tutorial interpretation.*
+
+```{r}
+prepProvider = df.models %>% 
+  group_by(PCP_ID1) %>% 
+  dplyr::summarize(uniquepat = n()) %>% 
+  ungroup()
+prepProvider2 = left_join(prepProvider,df.models, by="PCP_ID1")
+
+multProvider = prepProvider2 %>% filter(uniquepat >= 4)
+multProvider = multProvider[c(1:2, 4, 11)] ## showing only the variables necessary to run the analyses
+
+# pander(multProvider[33:40,])
+```
+
+#### Step 3: Create new variable, "uniquematch," for each physician, that captures the number of low and high LP (health literacy) patients for whom the physician was high or low complexity.
+
+Output would show that, for example, Physician PCPXXX's 6 unique patients, there was 1 highCP-highLP interaction, 2 highCP-lowLP interactions, 2 lowCP-highLP interactions, and 1 lowCP-lowLP interaction. **Please note:** *Kaiser Permanante (owners of data) will not allow any individual-level data (even a small subset) to be shown in a public repository. A version of this HTML exists with the restricted .csv files that includes a subset of individual-level data to aid in tutorial interpretation.*
+
+```{r, warning=FALSE, message=FALSE}
+prepProvider3 = multProvider %>% 
+  group_by(PCP_ID1, cat_match) %>% 
+  dplyr::summarize(uniquematch = n()) %>% 
+  ungroup()
+multProvider2 = left_join(prepProvider3, multProvider, by=c("PCP_ID1", "cat_match"))
+
+# pander(multProvider2[33:40,])
+```
+
+#### Step 4: Identify physicians who had at least 2 low health literacy and 2 high health literacy patients. Then, create variable that simply labels which physicians should be kept or discarded (e.g., all the same type of health literacy patient, or did not meet the minimum of 2 in each category). Then, filter accordingly.
+
+```{r, warning=FALSE, message=FALSE}
+multProvider3 = multProvider2 %>% 
+  group_by(PCP_ID1, predictions_LP) %>% 
+  dplyr::summarize(numHighLow = n()) %>% 
+  ungroup()
+multProvider4 = left_join(multProvider3, multProvider2, by=c("PCP_ID1", "predictions_LP"))
+
+keepProvider = multProvider4 %>% mutate(
+  atleast2 = case_when(
+    numHighLow==uniquepat ~ "same", ## when patients are all high or all low
+    predictions_LP=="Low" & numHighLow >= 2 ~ "keep",
+    predictions_LP=="High" & numHighLow >= 2 ~ "keep",
+    TRUE ~ "remove"))
+
+## Final filtering
+keepProvider = keepProvider %>%
+  group_by(PCP_ID1) %>%
+  filter(!any(atleast2 == "remove") & !any(atleast2 == "same")) %>% 
+  ungroup()
+```
+
+### Create vectorization signatures: Get proportion scores as shown in Table 4a. 
+
+#### Step 1: Aggregate across physician to get count of each "cat_match" category.
+
+Output would show that, for example, the distribution of PCPXXX's six patients into relevant "cat_match" categories. **Please note:** *Kaiser Permanante (owners of data) will not allow any individual-level data (even a small subset) to be shown in a public repository. A version of this HTML exists with the restricted .csv files that includes a subset of individual-level data to aid in tutorial interpretation.*
+
+```{r, warning=FALSE, message=FALSE}
+
+## simple aggregation
+keepProvider = keepProvider %>% 
+  group_by(PCP_ID1, cat_match) %>%
+  dplyr::summarize(uniquematch = mean(uniquematch)) %>% 
+  ungroup()
+
+# pander(keepProvider[10:20,])
+```
+
+#### Step 2: Generate a proportion score of how many patients within each "cat_match" category given total number of high or low health patients. Then, put in a format similar to the final signatures of Table 4a. For each physician, the output is what is referred to in the manuscript as a "tailoring signature."
+
+```{r}
+
+highLP = filter(keepProvider, cat_match == "lowCP-highLP" | cat_match == "highCP-highLP") %>%
+  group_by(PCP_ID1) %>% 
+  mutate(countLP = sum(uniquematch)) %>%
+  ungroup()
+
+lowLP = filter(keepProvider, cat_match == "lowCP-lowLP" | cat_match == "highCP-lowLP") %>%
+  group_by(PCP_ID1) %>% 
+  mutate(countLP = sum(uniquematch)) %>%
+  ungroup()
+
+keepProvider.prop = rbind(highLP, lowLP) %>% arrange(PCP_ID1, cat_match) %>% mutate(propscore = uniquematch/countLP)
+ 
+## Put in similar format as shown in Table 4a. 
+
+keepProvider.prop2 = spread(keepProvider.prop, cat_match, propscore)
+keepProvider.prop2 = keepProvider.prop2 %>% group_by(PCP_ID1) %>% 
+  summarise_if(is.numeric, mean, na.rm = TRUE) %>% 
+  select(-uniquematch, -countLP)
+keepProvider.prop2[is.na(keepProvider.prop2)] <- 0 ## if category does not exist, produces NA, converted to 0 occurrences 
+
+# pander(head(keepProvider.prop2))
+
+```
+
+#### Step 3: Get euclidean scores compared to gold standard.** The output shows the "resemblance scores" to each of the "gold standard vector benchmarks" of possible communicative strategies. We focus on "abs_tailor" (i.e., "Universal Tailoring") and "univ_prec" (i.e., "Universal Precautions").
+
+```{r}
+rcols = c("lowCP-lowLP", "highCP-highLP", "lowCP-highLP", "highCP-lowLP")
+PCP_ID1 = c()
+abs_tailor = c()
+univ_prec = c()
+always_high = c()
+anti_tailor = c()
+ambig = c()
+targ_lowLP = c()
+targ_highLP = c()
+
+euc.dist <- function(x1, x2) sqrt(sum((x1 - x2) ^ 2))
+for (i in 1:nrow(keepProvider.prop2)) {
+  prov_profile = as.matrix(keepProvider.prop2[i,rcols]) 
+  
+  ## "gold standard vector benchmarks"
+  abs_tailor1 = t(as.matrix(c(1, 1, 0, 0)))
+  univ_prec2 = t(as.matrix(c(1, 0, 1, 0)))
+  always_high3 = t(as.matrix(c(0, 1, 0, 1)))
+  anti_tailor4 = t(as.matrix(c(0, 0, 1, 1)))
+  ambig5 = t(as.matrix(c(.5, .5, .5, .5)))
+  targ_lowLP6 = t(as.matrix(c(1, .5, .5, 0)))
+  targ_highLP7 = t(as.matrix(c(.5, 1, 0, .5)))
+  
+  ## generate the "resemblance scores"
+  dist1 = euc.dist(prov_profile, abs_tailor1)
+  dist2 = euc.dist(prov_profile, univ_prec2)
+  dist3 = euc.dist(prov_profile, always_high3)
+  dist4 = euc.dist(prov_profile, anti_tailor4)
+  dist5 = euc.dist(prov_profile, ambig5)
+  dist6 = euc.dist(prov_profile, targ_lowLP6)
+  dist7 = euc.dist(prov_profile, targ_highLP7)
+  
+  abs_tailor = c(abs_tailor, dist1)
+  univ_prec = c(univ_prec, dist2)
+  always_high = c(always_high, dist3)
+  anti_tailor = c(anti_tailor, dist4)
+  ambig = c(ambig, dist5)
+  targ_lowLP = c(targ_lowLP, dist6)
+  targ_highLP = c(targ_highLP, dist7)
+  
+  PCP_ID1 = c(PCP_ID1, as.character(keepProvider.prop2$PCP_ID1[i]))
+}
+tailoringScores = data.frame(PCP_ID1, abs_tailor, univ_prec, always_high, anti_tailor, targ_lowLP, targ_highLP, ambig)
+
+# pander(head(tailoringScores[1:7]))
+
+```
+
+#### Step 4: Combine datasets.** Adding physicians' resemblance scores to the master data sheet (imported at the start).
+
+```{r}
+masterBig = merge(tailoringScores[c(1,2,3)], df.models, by="PCP_ID1")
+masterBig = masterBig[!(is.na(masterBig$DV_CAREEXPL)),]
+```
+
+### Mixed effects models: “Universal Tailoring" and "Universal Precautions"
+
+**Corresponds to results reported in "Table 3. Results of physicians’ communication strategies and patient-reported understanding.**
+
+```{r}
+df.models2.var = masterBig %>% mutate(
+                                 CHARLSON_INDEX_z = scale(CHARLSON_INDEX, center=FALSE),
+                                 Age_z = scale(Age, center=FALSE),
+
+                                 abs_tailor_zc = scale(abs_tailor),
+                                 univ_prec_zc = scale(univ_prec)
+                                 )
+```
+
+#### Universal Tailoring
+
+```{r, message=FALSE}
+library(lme4)
+library(strengejacke)
+```
+
+**Step 1: Build relevant model with and without interaction term and test interaction.**
+
+```{r, warning=FALSE, message=FALSE}
+ut.interact <- glmer(DV_CAREEXPL ~ abs_tailor_zc*predictions_LP + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df.models2.var, family = binomial)
+ut.interact <- update(ut.interact, control = glmerControl(optimizer="bobyqa"))
+
+ut.main <- glmer(DV_CAREEXPL ~ abs_tailor_zc + predictions_LP + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df.models2.var, family = binomial)
+ut.main <- update(ut.main, control = glmerControl(optimizer="bobyqa"))
+
+pander(anova(ut.main, ut.interact))
+```
+
+**Step 2: Show results for main effects.**
+
+```{r}
+tab_model(ut.main, digits = 3, digits.re = 3)
+```
+
+#### Universal Precautions
+
+**Step 1: Build relevant model with and without interaction term and test interaction.**
+
+```{r, warning=FALSE, message=FALSE}
+up.interact <- glmer(DV_CAREEXPL ~ univ_prec_zc*predictions_LP + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df.models2.var, family = binomial)
+up.interact <- update(up.interact, control = glmerControl(optimizer="bobyqa"))
+```
+
+```{r, warning=FALSE, message=FALSE}
+up.main <- glmer(DV_CAREEXPL ~ univ_prec_zc + predictions_LP + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df.models2.var, family = binomial)
+up.main <- update(up.main, control = glmerControl(optimizer="bobyqa"))
+
+pander(anova(up.main, up.interact))
+```
+
+**Step 2: Show results for main effects.**
+
+```{r}
+tab_model(up.main, digits = 3, digits.re = 3)
+```
+
+## Subhead: "Effects of combining dyadic-level SM concordance and physicians’ communication strategy"
+
+### Mixed effects models: Synergy analysis with Universal Tailoring
+
+#### Focus on Low 'Health Literacy' Patients
+
+```{r}
+df_h1 = df.models2.var %>% filter(cat_match == "lowCP-lowLP" | cat_match == "highCP-lowLP")
+df_h1$cat_match <- relevel(df_h1$cat_match, "lowCP-lowLP")
+```
+
+**Step 1: Build relevant model with and without interaction term and test interaction.**
+
+```{r, warning=FALSE, message=FALSE}
+interact_low <- glmer(DV_CAREEXPL ~ abs_tailor_zc*cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_h1, family = binomial)
+interact_low <- update(interact_low, control = glmerControl(optimizer="bobyqa"))
+
+main_low <- glmer(DV_CAREEXPL ~ abs_tailor_zc + cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_h1, family = binomial)
+main_low <- update(main_low, control = glmerControl(optimizer="bobyqa"))
+
+pander(anova(interact_low, main_low))
+```
+**Step 2: Interpret the interaction.**
+
+```{r, message=FALSE}
+library(interactions)
+```
+
+```{r, warning=FALSE}
+pander(sim_slopes(interact_low, pred = abs_tailor_zc, modx = cat_match, jnplot = FALSE)$slopes)
+```
+
+#### Focus on High 'Health Literacy' Patients
+
+```{r}
+df_h2 = df.models2.var %>% filter(cat_match == "highCP-highLP" | cat_match == "lowCP-highLP")
+df_h2$cat_match <- relevel(df_h2$cat_match, "highCP-highLP")
+```
+
+**Step 1: Build relevant model with and without interaction term and test interaction.**
+
+```{r, warning=FALSE, message=FALSE}
+interact_high <- glmer(DV_CAREEXPL ~ abs_tailor_zc*cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_h2, family = binomial)
+interact_high <- update(interact_high, control = glmerControl(optimizer="bobyqa"))
+
+main_high <- glmer(DV_CAREEXPL ~ abs_tailor_zc + cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_h2, family = binomial)
+main_high <- update(main_high, control = glmerControl(optimizer="bobyqa"))
+
+pander(anova(interact_high, main_high))
+```
+
+### Mixed effects models: Synergy analysis with Universal Precautions
+
+#### Focus on Low 'Health Literacy' Patients
+
+**Step 1: Build relevant model with and without interaction term and test interaction.**
+
+```{r, warning=FALSE, message=FALSE}
+interact_low <- glmer(DV_CAREEXPL ~ univ_prec_zc*cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_h1, family = binomial)
+interact_low <- update(interact_low, control = glmerControl(optimizer="bobyqa"))
+
+main_low <- glmer(DV_CAREEXPL ~ univ_prec_zc + cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_h1, family = binomial)
+main_low <- update(main_low, control = glmerControl(optimizer="bobyqa"))
+
+pander(anova(interact_low, main_low))
+```
+
+#### Focus on High 'Health Literacy' Patients
+
+**Step 1: Build relevant model with and without interaction term and test interaction.**
+
+```{r, warning=FALSE, message=FALSE}
+interact_high <- glmer(DV_CAREEXPL ~ univ_prec_zc*cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_h2, family = binomial)
+interact_high <- update(interact_high, control = glmerControl(optimizer="bobyqa"))
+
+main_high <- glmer(DV_CAREEXPL ~ univ_prec_zc + cat_match + Age_z + sex + white + CHARLSON_INDEX_z + ed_HS + (1|PCP_ID1), df_h2, family = binomial)
+main_high <- update(main_high, control = glmerControl(optimizer="bobyqa"))
+
+pander(anova(interact_high, main_high))
+```
+
+## TABLES AND FIGURES
+
+```{r, message=FALSE}
+library(kableExtra)
+```
+
+### Table 4 as shown in the manuscript.
+
+```{r}
+# Table A
+matA = matrix(c("5/6 = 0.83", "7/10 = 0.70", "1/6 = 0.17", "3/10 = 0.30"),              
+               ncol=4,byrow=TRUE)
+colnames(matA) <- c("Low HL","High HL","Low HL","High HL")
+
+kable(matA, 
+      # caption = "Table Xa. Doctor w/ 16 patients: 6 Low LP and 10 High LP",
+      caption = "A.",
+      align = "cccc") %>%
+  add_header_above(c("Physician Low Complexity" = 2, "Physician High Complexity" = 2)) %>%
+  kable_styling(bootstrap_options = "striped")
+
+## Table B
+matB = matrix(c("Universal precautions", 1, 1, 0, 0, 0.488, 
+                "Universal tailoring", 1, 0, 0, 1, 1.019,
+                "Tailor only low", 1, 0.5, 0, 0.5, 0.371,
+                "Tailor only high", 0.5, 0, 0.5, 1, 1.094,
+                "No Precautions", 0, 0, 1, 1, 1.307,
+                "Anti-Tailor", 0, 1, 0, 1, 1.452),  
+                ncol=6,byrow=TRUE)
+colnames(matB) <- c("Strategy", "Low HL","High HL","Low HL","High HL", "Resemblance scores")
+
+kable(matB, 
+      caption = "B.",
+      # caption = "Table Xb. 'Gold standard' vector representation for each doctor tailoring type. The last column shows the example doctor's euclidean distance score from each type with the closest score in bold.", 
+      align = "lccccc") %>%
+  add_header_above(c("", "Physician Low Complexity" = 2, "Physician High Complexity" = 2, "")) %>%
+  # row_spec(2, bold = TRUE) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+### Figure 1 as shown in the manuscript.
+
+```{r}
+g1 = gather(tailoringScores, "abs_tailor", "univ_prec", "targ_lowLP", "targ_highLP", "always_high", "anti_tailor", key="matching", value="Distance_from_Gold_Standard")
+g1$matching <- factor(g1$matching, levels=c("univ_prec", "abs_tailor", "targ_lowLP", "targ_highLP", "always_high", "anti_tailor"))
+g2 = g1 %>% mutate(matching = recode_factor(matching, "abs_tailor" = "Univ \nTailor", "univ_prec" = "Univ \nPrecaut", "targ_lowLP" = "Tailor \nOnly \nLow", "targ_highLP" = "Tailor \nOnly \nHigh", "always_high" = "No\n Precaut", "anti_tailor" = "Anti- \nTailor"))
+
+theme_USGS_box <- function(base_family = "serif", ...){
+  theme_bw(base_family = base_family, ...) +
+  theme(
+    panel.grid = element_blank(),
+    plot.title = element_text(size = 8),
+    # axis.title = element_text(size = 8),
+    axis.ticks.length = unit(-0.05, "in"),
+    axis.text.y = element_text(margin=unit(c(0.3,0.3,0.3,0.3), "cm")),
+    axis.text.x = element_text(margin=unit(c(0.3,0.3,0.3,0.3), "cm")),
+    axis.ticks.x = element_blank(),
+    aspect.ratio = 1,
+    legend.background = element_rect(color = "black", fill = "white")
+  )
+}
+
+boxplotGold = ggplot(data = g2,
+       aes(matching, Distance_from_Gold_Standard)) +
+    stat_boxplot(geom ='errorbar', width = 0.4) +
+    geom_boxplot(width = 0.4, fill = "lightgrey") +
+    # stat_summary(fun.data = n_fun, geom = "text", hjust = 0.5) +
+    # expand_limits(y = 0) +
+    theme_USGS_box() + 
+    xlab(label = "Tailoring Style") +
+    ylab(label = "Distance from Gold Standard")
+
+boxplotGold
+```
+
+
+
+
