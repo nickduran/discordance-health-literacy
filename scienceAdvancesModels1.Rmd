@@ -12,7 +12,7 @@ rm(list=ls())
 
 ## What this Notebook Contains
 
-> Assuming access to the available source data files, the Notebook contains the complete statistical code for replicating sections:
+> Notebook contains the complete statistical code for replicating section: 
 > 
 > * "Grouping by dyadic-level SM concordance"
 > * "Association between dyadic-level SM concordance and patient-reported understanding"
